@@ -1,8 +1,8 @@
-//Template
-//For Cascadence
+
+//For Cascadence by cctv.fm
 //Developed with Modular Seattle for Velocity 2019
 
-//This file is to give you all the functions you need to start writing your own Cascadence firmware
+
 
 #include <tinySPI.h>
 
