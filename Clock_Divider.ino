@@ -72,7 +72,7 @@ void loop()
   byte clockStateB = digitalRead(CLK_IN);
   int rateValue    = analogRead(POT0);
   int rateValueB   = analogRead(POT2);
-  rateValue        = map(rateValue , 0, 1024, 0, 16);
+  rateValue        = map(rateValue , 0, 1024, 0, 8);
   rateValueB       = map(rateValueB, 0, 1024, 0, 16);
   int pulseLength  = analogRead(POT1);
   int pulseLengthB = analogRead(POT3);
