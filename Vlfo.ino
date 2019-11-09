@@ -102,9 +102,10 @@ void loop() {
   sensorValueB = analogRead(1);
   sensorValueC = analogRead(2);
   // map it to the range:
-  rate   = map(sensorValue , 0, 1024, 0, 100);
-  ending = map(sensorValueB, 0, 1024, 2, 120);
-  start  = map(sensorValueC, 0, 1024, 119, 1);
+  rate   = map(sensorValue , 0, 1024, 100, 0);
+  start  = map(sensorValueB , 0, 1024, 0, 119);
+  ending = map(sensorValueC, 0, 1024, 5, 120);
+  
   
 
  
