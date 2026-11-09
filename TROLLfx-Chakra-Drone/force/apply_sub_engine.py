@@ -68,7 +68,7 @@ modify("src/dsp/freak_plugin.cpp", [
     inst->sub.configure(inst->params.sub_division, inst->params.sub_glide_ms,
                         inst->params.sub_fold, inst->params.sub_mix,
                         inst->params.sub_harmonic_lock != 0, inst->params.sub_phase_lock != 0);
-    if (inst->params.chakra_gate && inst->params.sub_enabled) {
+    inst->last_sub_gate = inst->params.chakra_gate != 0;\n    if (inst->params.chakra_gate && inst->params.sub_enabled) {
         static const float hz[] = {396, 417, 528, 639, 741, 852, 963};
         const float root_hz = inst->params.chakra_source == 0
             ? hz[inst->params.chakra_root] : inst->params.chakra_hz;
@@ -76,7 +76,7 @@ modify("src/dsp/freak_plugin.cpp", [
     }
     set_error(inst, NULL);
     return inst;"""),
-    ("            inst->params.chakra_gate = 0;\n            inst->engine.set_params(inst->params);\n            inst->engine.all_notes_off();",
+    ("        } else if (cc == 120 || cc == 123) {   // all sound off / all notes off\n            inst->params.chakra_gate = 0;\n            inst->engine.set_params(inst->params);\n            inst->engine.all_notes_off();",
      """            inst->params.chakra_gate = 0;
             inst->engine.set_params(inst->params);
             inst->sub.silence();
@@ -84,7 +84,7 @@ modify("src/dsp/freak_plugin.cpp", [
     ('    } else if (strcmp(key, "all_notes_off") == 0) {',
      '    } else if (strcmp(key, "all_notes_off") == 0) {'),
     ('    inst->engine.set_params(inst->params);\n}\n\nstatic int get_param(',
-     """    const bool sub_was_active = inst->sub.active();
+     """    const bool sub_gate_rising = inst->params.chakra_gate && !inst->last_sub_gate;\n    const bool sub_gate_falling = !inst->params.chakra_gate && inst->last_sub_gate;\n    inst->last_sub_gate = inst->params.chakra_gate != 0;
     static const float hz[] = {396, 417, 528, 639, 741, 852, 963};
     const float root_hz = inst->params.chakra_source == 0
         ? hz[inst->params.chakra_root] : inst->params.chakra_hz;
