@@ -11,13 +11,18 @@ public:
         : sample_rate_(sample_rate > 0 ? sample_rate : 44100.f) {}
 
     // Divide 1..10, glide 0..5000ms, fold and mix 0..1.
-    void configure(float divisor, float glide_ms, float fold, float mix) noexcept {
-        divider_ = valid(divisor) ? std::clamp(divisor, 1.f, 10.f) : 10.f;
+    void configure(float divisor, float glide_ms, float fold, float mix, bool harmonic_lock = true, bool phase_lock = true) noexcept {
+        const float new_divider = valid(divisor) ? std::clamp(divisor, 1.f, 10.f) : 10.f;
+        harmonic_lock_ = harmonic_lock;
+        phase_lock_ = phase_lock;
+        const float quantized = harmonic_lock_ ? std::round(new_divider) : new_divider;
+        const bool changed = quantized != divider_;
+        divider_ = quantized;
         glide_ms_ = valid(glide_ms) ? std::clamp(glide_ms, 0.f, 5000.f) : 900.f;
         fold_ = valid(fold) ? std::clamp(fold, 0.f, 1.f) : 0.f;
         mix_ = valid(mix) ? std::clamp(mix, 0.f, 1.f) : 0.f;
         // Changing divider while sounding slews from the *current* frequency.
-        if (active_) beginGlide(current_hz_, root_hz_ / divider_);
+        if (active_ && changed) beginGlide(current_hz_, root_hz_ / divider_);
     }
 
     void trigger(float root_hz, float velocity = 1.f) noexcept {
@@ -26,7 +31,7 @@ public:
         velocity_ = valid(velocity) ? std::clamp(velocity, 0.f, 1.f) : 1.f;
         active_ = true;
         gate_ = true;
-        phase_ = 0.f;
+        if (phase_lock_) phase_ = 0.f;
         beginGlide(root_hz_, root_hz_ / divider_);
     }
 
@@ -81,6 +86,6 @@ private:
     float root_hz_=528.f, velocity_=1.f, phase_=0.f, env_=0.f;
     float current_hz_=528.f, start_log_=0.f, end_log_=0.f;
     int glide_samples_=0, glide_index_=0;
-    bool active_=false, gate_=false;
+    bool active_=false, gate_=false, harmonic_lock_=true, phase_lock_=true;
 };
 }
