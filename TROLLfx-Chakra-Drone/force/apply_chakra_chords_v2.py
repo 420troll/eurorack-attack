@@ -12,14 +12,30 @@ if len(sys.argv) != 2:
     raise SystemExit("Usage: apply_chakra_chords_v2.py /path/to/patched-mpc-vst-plaits")
 root = Path(sys.argv[1]).resolve()
 
-# Fix the actual DSP model, not only the visible UI. Chords is Plaits model 6.
+# Fix the actual DSP model, not only the visible UI. Chords is Plaits model 14.
 engine = root / "src/dsp/plaits_move_engine.cpp"
 source = engine.read_text()
 before = "    p.model = clampi(p.model, 0, kMaxEngines - 1);"
-after = "    p.model = 6;  // CHORDS-only Chakra V2: ignore host/preset model changes"
+after = "    p.model = 14;  // CHORDS-only Chakra V2: ignore host/preset model changes"
 if source.count(before) != 1:
     raise SystemExit("Unexpected Plaits engine model setter; aborting")
 engine.write_text(source.replace(before, after))
+
+# Force exposed parameter/state to agree with the engine, including saved presets,
+# automation and restored JSON. Keep the MODEL parameter index for compatibility.
+plugin = root / "src/dsp/freak_plugin.cpp"
+plugin_source = plugin.read_text()
+anchors = [
+    ("    inst->engine.init();\n    inst->engine.set_params(inst->params);",
+     "    inst->engine.init();\n    inst->params.model = 14;\n    inst->engine.set_params(inst->params);"),
+    ("    inst->engine.set_params(inst->params);\n    const bool retrigger = inst->params.sub_enabled &&",
+     "    inst->params.model = 14;\n    inst->engine.set_params(inst->params);\n    const bool retrigger = inst->params.sub_enabled &&"),
+]
+for old_anchor, new_anchor in anchors:
+    if plugin_source.count(old_anchor) != 1:
+        raise SystemExit("Unexpected V2 host plugin model anchor")
+    plugin_source = plugin_source.replace(old_anchor, new_anchor)
+plugin.write_text(plugin_source)
 
 # The original seven SUB parameters and their VST indices stay untouched.
 # This new identity preserves both the original TcPl and experimental TcSb.
@@ -37,6 +53,12 @@ if module.get("id") != "trollfx-chakra-plaits-sub":
     raise SystemExit("Expected Chakra SUB module")
 module["id"] = "trollfx-chakra-chords-sub-v2"
 module["name"] = "TROLLfx Chakra Chords SUB V2"
+for parameter in module["capabilities"]["chain_params"]:
+    if parameter["key"] == "model":
+        parameter["default"] = 14
+        break
+else:
+    raise SystemExit("Missing model parameter")
 module_path.write_text(json.dumps(module, indent=2) + "\n")
 
 # Tabs and Q-Link groups are distinct. No MODEL selector is exposed.
