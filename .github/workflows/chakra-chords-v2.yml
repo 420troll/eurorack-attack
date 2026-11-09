@@ -1,0 +1,89 @@
+name: Chakra Chords SUB V2 - ARM build and validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/chakra-chords-sub-v2]
+    paths:
+      - 'TROLLfx-Chakra-Drone/force/**'
+      - '.github/workflows/chakra-chords-v2.yml'
+
+jobs:
+  chords-arm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout TROLLfx Chakra branch
+        uses: actions/checkout@v4
+
+      - name: Obtain pinned native Plaits and MPC VST toolchain
+        run: |
+          git clone https://github.com/poloq-instruments/mpc-vst-plaits.git /tmp/mpc-vst-plaits
+          git -C /tmp/mpc-vst-plaits checkout b113c83dd8d72fc4884888aaeb8d404feced69df
+          git clone https://github.com/sd88me/mpc-vst-plugins.git /tmp/mpc-vst-plugins
+          git -C /tmp/mpc-vst-plugins checkout 6634b26142aa54795a6aff36a3467bc5c218d2cb
+
+      - name: Apply Chakra, SUB, Chords V2 overlays
+        run: |
+          python3 -m py_compile TROLLfx-Chakra-Drone/force/add_chakra_page.py TROLLfx-Chakra-Drone/force/apply_sub_engine.py TROLLfx-Chakra-Drone/force/apply_chakra_chords_v2.py
+          python3 TROLLfx-Chakra-Drone/force/add_chakra_page.py /tmp/mpc-vst-plaits
+          python3 TROLLfx-Chakra-Drone/force/apply_sub_engine.py /tmp/mpc-vst-plaits
+          python3 TROLLfx-Chakra-Drone/force/apply_chakra_chords_v2.py /tmp/mpc-vst-plaits
+
+      - name: Assert engine model and separate Q-Link mapping
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          root = Path("/tmp/mpc-vst-plaits")
+          engine = (root/"src/dsp/plaits_move_engine.cpp").read_text()
+          plugin = (root/"src/dsp/freak_plugin.cpp").read_text()
+          layout = (root/"vst/layout.conf").read_text()
+          manifest = json.loads((root/"vst/vst.json").read_text())
+          module = json.loads((root/"src/module.json").read_text())
+          assert "p.model = 14;  // CHORDS-only" in engine
+          assert plugin.count("inst->params.model = 14;") >= 2
+          assert manifest["uid"] == "TcC2"
+          assert manifest["so"] == "chakra_chords_sub_v2.so"
+          assert next(p for p in module["capabilities"]["chain_params"] if p["key"] == "model")["default"] == 14
+          assert "key=model " not in layout and "key=model_prev" not in layout and "key=model_next" not in layout
+          a = layout.split("[tab CHAKRA]")[1].split("[tab SUB]")[0]
+          b = layout.split("[tab SUB]")[1]
+          assert "sub_mix" not in a and "sub_division" not in a
+          assert "timbre" not in b and "morph" not in b
+          assert 'qlinks "CHAKRA"' in a and 'qlinks "SUB"' in b
+          print("V2 model lock and page separation PASS")
+          PY
+
+      - name: Run DSP and VST host regressions
+        env:
+          MPC_VST: /tmp/mpc-vst-plugins
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          cd /tmp/mpc-vst-plaits
+          TEST=tests/chakra_sub.c bash tests/run_c.sh
+          /tmp/mpc-vst-plugins/tools/test_port.sh vst/vst.json
+
+      - name: Build Force ARM32 VST and skin
+        env:
+          MPC_VST: /tmp/mpc-vst-plugins
+        run: |
+          cd /tmp/mpc-vst-plaits
+          bash build.sh
+          test -s vst/build/chakra_chords_sub_v2.so
+          file vst/build/chakra_chords_sub_v2.so
+          sha256sum vst/build/chakra_chords_sub_v2.so
+          test -d 'vst/build/skin/TROLLfx - VST - Chakra Chords SUB V2'
+          grep -q 'TcC2\|54634332' vst/build/pluginlist-entry.xml
+          (command -v readelf && readelf -Ws vst/build/chakra_chords_sub_v2.so | grep VSTPluginMain) || true
+
+      - name: Upload native instrument and skin for inspection
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chakra-chords-sub-v2-arm32
+          path: |
+            /tmp/mpc-vst-plaits/vst/build/chakra_chords_sub_v2.so
+            /tmp/mpc-vst-plaits/vst/build/pluginlist-entry.xml
+            /tmp/mpc-vst-plaits/vst/build/skin/TROLLfx - VST - Chakra Chords SUB V2/**
+          retention-days: 14
