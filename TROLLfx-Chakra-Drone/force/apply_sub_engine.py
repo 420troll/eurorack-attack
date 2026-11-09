@@ -53,7 +53,7 @@ modify("src/dsp/plaits_move_engine.cpp", [
 ])
 modify("src/dsp/freak_plugin.cpp", [
     ('#include "plaits_move_engine.h"', '#include "plaits_move_engine.h"\n#include "chakra_sub_engine.h"'),
-    ("    float notes_last;", "    chakra::SubVoice sub;\n    float notes_last;"),
+    ("    float notes_last;", "    chakra::SubVoice sub;\n    bool last_sub_gate = false;\n    float notes_last;"),
     ('    add(P_ENUM, OFF(chakra_gate), 0, 1, "chakra_gate");',
      '''    add(P_ENUM, OFF(chakra_gate), 0, 1, "chakra_gate");
     add(P_FLOAT, OFF(sub_division), 1, 10, "sub_division");
@@ -77,12 +77,10 @@ modify("src/dsp/freak_plugin.cpp", [
     set_error(inst, NULL);
     return inst;"""),
     ("        } else if (cc == 120 || cc == 123) {   // all sound off / all notes off\n            inst->params.chakra_gate = 0;\n            inst->engine.set_params(inst->params);\n            inst->engine.all_notes_off();",
-     """            inst->params.chakra_gate = 0;
+     """        } else if (cc == 120 || cc == 123) {   // all sound off / all notes off\n            inst->params.chakra_gate = 0;\n            inst->last_sub_gate = false;
             inst->engine.set_params(inst->params);
             inst->sub.silence();
             inst->engine.all_notes_off();"""),
-    ('    } else if (strcmp(key, "all_notes_off") == 0) {',
-     '    } else if (strcmp(key, "all_notes_off") == 0) {'),
     ('    inst->engine.set_params(inst->params);\n}\n\nstatic int get_param(',
      """    const bool sub_gate_rising = inst->params.chakra_gate && !inst->last_sub_gate;\n    const bool sub_gate_falling = !inst->params.chakra_gate && inst->last_sub_gate;\n    inst->last_sub_gate = inst->params.chakra_gate != 0;
     static const float hz[] = {396, 417, 528, 639, 741, 852, 963};
@@ -92,8 +90,8 @@ modify("src/dsp/freak_plugin.cpp", [
                         inst->params.sub_fold, inst->params.sub_mix,
                         inst->params.sub_harmonic_lock != 0, inst->params.sub_phase_lock != 0);
     if (!inst->params.sub_enabled) inst->sub.silence();
-    else if (inst->params.chakra_gate && !sub_was_active) inst->sub.trigger(root_hz);
-    else if (!inst->params.chakra_gate && sub_was_active) inst->sub.release();
+    else if (sub_gate_rising) inst->sub.trigger(root_hz);
+    else if (sub_gate_falling) inst->sub.release();
     inst->engine.set_params(inst->params);
 }
 
