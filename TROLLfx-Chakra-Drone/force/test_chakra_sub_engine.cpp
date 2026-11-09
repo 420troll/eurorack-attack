@@ -13,7 +13,9 @@ int main(){
     float first=s.process(); (void)first;
     for(int i=0;i<44100;++i) {float sample=s.process(); assert(std::isfinite(sample));assert(std::fabs(sample)<=1.01f);}
     assert(near(s.frequency(),52.8f,.01f));
-    s.configure(7.35f,300.f,.5f,.5f);
+    s.configure(7.35f,300.f,.5f,.5f,true,true);
+    assert(near(s.target(),528.f/7.f,.01f));
+    s.configure(7.35f,300.f,.5f,.5f,false,false);
     assert(near(s.target(),528.f/7.35f,.01f));
     for(int i=0;i<15000;++i) s.process();
     assert(near(s.frequency(),528.f/7.35f,.01f));
