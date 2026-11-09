@@ -1,0 +1,27 @@
+name: Chakra Native Plaits Reference
+on:
+  workflow_dispatch:
+  push:
+    branches: [project/trollfx-chakra-drone]
+    paths:
+      - 'TROLLfx-Chakra-Drone/native/**'
+      - '.github/workflows/chakra-native-reference.yml'
+jobs:
+  native-dsp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Chakra project
+        uses: actions/checkout@v4
+      - name: Fetch original Plaits source and build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ git
+          cd TROLLfx-Chakra-Drone/native
+          bash build_and_test.sh
+      - name: Upload reference WAVs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chakra-plaits-native-reference
+          path: TROLLfx-Chakra-Drone/native/build/*.wav
