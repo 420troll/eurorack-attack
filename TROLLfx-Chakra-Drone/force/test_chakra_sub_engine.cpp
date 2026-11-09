@@ -5,6 +5,7 @@
 
 static bool near(float a,float b,float tolerance){return std::fabs(a-b)<tolerance;}
 int main(){
+    // Requested startup tuning: 528 Hz root, divide-by-10, 900 ms slew.
     chakra::SubVoice s(44100.f);
     s.configure(10.f,900.f,.2f,.5f);
     s.trigger(528.f);
@@ -28,5 +29,12 @@ int main(){
     b.silence(); assert(b.process()==0.f);
     chakra::SubVoice muted; muted.configure(10.f,900.f,0.f,0.f); muted.trigger(528.f);
     for(int i=0;i<1000;++i) assert(muted.process()==0.f);
+    // Phase reset makes the first sample deterministic; free phase preserves it.
+    chakra::SubVoice phase; phase.configure(1.f,0.f,0.f,.5f,true,true); phase.trigger(440.f);
+    for(int i=0;i<137;++i) phase.process();
+    phase.silence(); phase.trigger(440.f); assert(std::fabs(phase.process())<1e-7f);
+    phase.configure(1.f,0.f,0.f,.5f,true,false);
+    for(int i=0;i<137;++i) phase.process();
+    phase.silence(); phase.trigger(440.f); assert(std::fabs(phase.process())>1e-7f);
     std::cout<<"Chakra Sub Engine PASS\n";
 }

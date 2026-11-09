@@ -12,27 +12,36 @@ public:
 
     // Divide 1..10, glide 0..5000ms, fold and mix 0..1.
     void configure(float divisor, float glide_ms, float fold, float mix, bool harmonic_lock = true, bool phase_lock = true) noexcept {
-        const float new_divider = valid(divisor) ? std::clamp(divisor, 1.f, 10.f) : 10.f;
+        const float new_divider = valid(divisor) ? clamp(divisor, 1.f, 10.f) : 10.f;
         harmonic_lock_ = harmonic_lock;
         phase_lock_ = phase_lock;
         const float quantized = harmonic_lock_ ? std::round(new_divider) : new_divider;
         const bool changed = quantized != divider_;
         divider_ = quantized;
-        glide_ms_ = valid(glide_ms) ? std::clamp(glide_ms, 0.f, 5000.f) : 900.f;
-        fold_ = valid(fold) ? std::clamp(fold, 0.f, 1.f) : 0.f;
-        mix_ = valid(mix) ? std::clamp(mix, 0.f, 1.f) : 0.f;
+        glide_ms_ = valid(glide_ms) ? clamp(glide_ms, 0.f, 5000.f) : 900.f;
+        fold_ = valid(fold) ? clamp(fold, 0.f, 1.f) : .2f;
+        mix_ = valid(mix) ? clamp(mix, 0.f, 1.f) : .5f;
         // Changing divider while sounding slews from the *current* frequency.
         if (active_ && changed) beginGlide(current_hz_, root_hz_ / divider_);
     }
 
     void trigger(float root_hz, float velocity = 1.f) noexcept {
         if (!valid(root_hz) || root_hz <= 0.f) return;
-        root_hz_ = std::clamp(root_hz, 1.f, sample_rate_ * .4f);
-        velocity_ = valid(velocity) ? std::clamp(velocity, 0.f, 1.f) : 1.f;
+        root_hz_ = clamp(root_hz, 1.f, sample_rate_ * .4f);
+        velocity_ = valid(velocity) ? clamp(velocity, 0.f, 1.f) : 1.f;
         active_ = true;
         gate_ = true;
         if (phase_lock_) phase_ = 0.f;
         beginGlide(root_hz_, root_hz_ / divider_);
+    }
+
+    // Change an owned voice's root without resetting its phase or envelope.
+    void retune(float root_hz) noexcept {
+        if (!valid(root_hz) || root_hz <= 0.f) return;
+        const float next = clamp(root_hz, 1.f, sample_rate_ * .4f);
+        if (next == root_hz_) return;
+        root_hz_ = next;
+        if (active_) beginGlide(current_hz_, root_hz_ / divider_);
     }
 
     void release() noexcept { gate_ = false; }
@@ -54,7 +63,7 @@ public:
         const float attack = std::min(1.f, 1.f / (sample_rate_ * .003f));
         const float decay = std::min(1.f, 1.f / (sample_rate_ * .020f));
         env_ += (gate_ ? attack : -decay);
-        env_ = std::clamp(env_, 0.f, 1.f);
+        env_ = clamp(env_, 0.f, 1.f);
         if (!gate_ && env_ <= 0.f) {
             silence();
             return 0.f;
@@ -73,6 +82,9 @@ public:
 
 private:
     static bool valid(float x) noexcept { return std::isfinite(x); }
+    static float clamp(float x, float lo, float hi) noexcept {
+        return x < lo ? lo : (x > hi ? hi : x);
+    }
     void beginGlide(float from, float to) noexcept {
         start_log_ = std::log2(std::max(from, 1.f));
         end_log_ = std::log2(std::max(to, 1.f));
@@ -82,7 +94,7 @@ private:
         if (!glide_samples_) current_hz_ = to;
     }
 
-    float sample_rate_, divider_=10.f, glide_ms_=900.f, fold_=0.f, mix_=0.f;
+    float sample_rate_, divider_=10.f, glide_ms_=900.f, fold_=.2f, mix_=.5f;
     float root_hz_=528.f, velocity_=1.f, phase_=0.f, env_=0.f;
     float current_hz_=528.f, start_log_=0.f, end_log_=0.f;
     int glide_samples_=0, glide_index_=0;
