@@ -68,8 +68,8 @@ module["capabilities"]["chain_params"] = [
 lock_path = root / "vst/params.lock"
 locked = lock_path.read_text().splitlines()
 assert locked.count("model_prev") == 1 and locked.count("model_next") == 1
-lock_path.write_text("\\n".join(k for k in locked if k not in
-                                   ("model_prev", "model_next")) + "\\n")
+lock_path.write_text("\n".join(k for k in locked if k not in
+                                   ("model_prev", "model_next")) + "\n")
 module_path.write_text(json.dumps(module, indent=2) + "\n")
 
 # Tabs and Q-Link groups are distinct. No MODEL selector is exposed.
