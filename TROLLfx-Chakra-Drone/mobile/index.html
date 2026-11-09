@@ -1,14 +1,139 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TROLLfx Chakra Drone | Pixel</title><style>
-*{box-sizing:border-box}body{margin:0;background:#111322;color:#eee;font:16px system-ui}main{max-width:580px;margin:auto;padding:18px}header{text-align:center}h1{font-size:27px;margin:8px}small{color:#ba9aff;letter-spacing:.2em}.orb{border-radius:50%;width:95px;height:95px;margin:23px auto;background:radial-gradient(circle at 30% 25%,#e3d4ff,#7655c8 65%,#242040);box-shadow:0 0 50px #a47cff88;animation:breathe 5s infinite alternate}@keyframes breathe{to{transform:scale(1.18);box-shadow:0 0 65px #a47cffbb}}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin:24px 0}.preset{background:#22263a;color:white;border:1px solid #41465f;border-radius:13px;padding:13px 4px;font-weight:600;font-size:12px}.preset.active{border:2px solid var(--c);background:#33344f}.preset i{display:block;width:13px;height:13px;border-radius:50%;background:var(--c);margin:0 auto 7px}.preset span{display:block;color:#bac1d4;font-size:11px}.panel{background:#1c2030;border-radius:18px;padding:18px}label{display:flex;justify-content:space-between;margin:17px 0 4px;font-weight:550}.val{color:#bea5ff}input{width:100%;accent-color:#ad8cff;height:25px}select{width:100%;background:#30354a;color:white;border:1px solid #515773;border-radius:10px;padding:12px;font-size:16px}#power{width:100%;margin:18px 0;border:0;border-radius:15px;padding:18px;color:white;background:#7858c5;font-weight:800;font-size:20px}#power.on{background:#aa456e}p{text-align:center;color:#b5bbce;font-size:13px}#status{min-height:18px}@media(max-width:355px){.grid{grid-template-columns:repeat(3,1fr)}}@media(prefers-reduced-motion:reduce){.orb{animation:none}}</style></head><body><main><header><small>TROLLfx INSTRUMENTS</small><h1>CHAKRA DRONE</h1><p>Pixel browser prototype v0.1</p></header><div class="orb"></div><div class="grid" id="presets"></div><section class="panel"><label>Chord frequency <span class="val" id="freq">639 Hz</span></label><label for="chord">Voicing</label><select id="chord"><option value="major">Major</option><option value="minor">Minor</option><option value="sus">Suspended</option><option value="fifth">Fifths</option></select><label for="morph">Wavetable morph <span class="val" id="morphV">50%</span></label><input id="morph" type="range" min="0" max="100" value="50"><label for="speed">LFO speed <span class="val" id="speedV">0.15 Hz</span></label><input id="speed" type="range" min="0" max="100" value="28"><label for="depth">LFO depth <span class="val" id="depthV">25%</span></label><input id="depth" type="range" min="0" max="100" value="25"><label for="volume">Volume <span class="val" id="volumeV">30%</span></label><input id="volume" type="range" min="0" max="75" value="30"></section><button id="power">▶ START DRONE</button><p id="status">Tap Start to enable sound</p><p>Start at low volume. Audio is synthesized locally. Frequency presets are artistic, not medical.</p></main><script>
-'use strict';const $=id=>document.getElementById(id),data=[['Root',396,'#e16b76'],['Sacral',417,'#e8a46b'],['Solar',528,'#e4cb63'],['Heart',639,'#67c18a'],['Throat',741,'#70bed8'],['Third Eye',852,'#7c99e3'],['Crown',963,'#ad8ae5']],chords={major:[0,4,7,12],minor:[0,3,7,12],sus:[0,2,7,12],fifth:[0,7,12,19]};let selected=3,ctx,bus,osc=[],active=false,frame=0,last=-1,origin=0;const s={morph:.5,speed:.15,depth:.25,volume:.3};
-function preset(){const box=$('presets');box.innerHTML='';data.forEach(([name,hz,color],i)=>{let b=document.createElement('button');b.className='preset'+(selected===i?' active':'');b.style.setProperty('--c',color);b.innerHTML='<i></i>'+name+'<span>'+hz+' Hz</span>';b.onclick=()=>{selected=i;preset();$('freq').textContent=hz+' Hz';if(ctx)retune()};box.appendChild(b)})}
-function retune(){if(!ctx)return;const hz=data[selected][1],steps=chords[$('chord').value];osc.forEach((o,i)=>o.frequency.setTargetAtTime(hz*2**(steps[i]/12),ctx.currentTime,.02))}
-function makeWave(m){const re=new Float32Array(6),im=new Float32Array(6);im[1]=1;im[2]=.36*m;im[3]=.2*m;im[5]=.1*m;return ctx.createPeriodicWave(re,im)}
-function tick(){if(!active)return;const m=Math.max(0,Math.min(1,s.morph+s.depth*Math.sin(2*Math.PI*s.speed*(ctx.currentTime-origin))));if(Math.abs(last-m)>.008){const w=makeWave(m);osc.forEach(o=>o.setPeriodicWave(w));last=m}frame=requestAnimationFrame(tick)}
-async function start(){try{if(!ctx){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)throw Error('Web Audio unavailable');ctx=new AC();bus=ctx.createGain();bus.gain.value=0;bus.connect(ctx.destination);for(let i=0;i<4;i++){const o=ctx.createOscillator(),g=ctx.createGain();g.gain.value=.125;o.connect(g);if(ctx.createStereoPanner){const p=ctx.createStereoPanner();p.pan.value=(i-1.5)*.4;g.connect(p);p.connect(bus)}else g.connect(bus);o.start();osc.push(o)}retune()}await ctx.resume();active=true;origin=ctx.currentTime;last=-1;bus.gain.setTargetAtTime(s.volume,ctx.currentTime,.08);$('power').textContent='■ STOP DRONE';$('power').classList.add('on');$('status').textContent='Playing · '+data[selected][0];tick()}catch(e){$('status').textContent=e.message}}
-function stop(){active=false;cancelAnimationFrame(frame);if(bus&&ctx)bus.gain.setTargetAtTime(0,ctx.currentTime,.05);$('power').textContent='▶ START DRONE';$('power').classList.remove('on');$('status').textContent='Stopped'}
-$('power').onclick=()=>active?stop():start();$('chord').onchange=retune;
-function bind(id,key,map,fmt){const el=$(id),update=()=>{s[key]=map(+el.value);$(id+'V').textContent=fmt(s[key]);if(key==='volume'&&active)bus.gain.setTargetAtTime(s.volume,ctx.currentTime,.04)};el.addEventListener('input',update);update()}
-bind('morph','morph',v=>v/100,v=>Math.round(v*100)+'%');bind('speed','speed',v=>.01*Math.pow(300,v/100),v=>v.toFixed(2)+' Hz');bind('depth','depth',v=>v/100,v=>Math.round(v*100)+'%');bind('volume','volume',v=>v/100,v=>Math.round(v*100)+'%');preset();document.addEventListener('visibilitychange',()=>{if(document.hidden&&active)stop()});
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TROLLfx Chakra Drone v0.2</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#11111d;color:#eee;font:15px system-ui,sans-serif}main{max-width:650px;margin:auto;padding:14px 16px 35px}h1{font-size:26px;margin:6px 0}h2{font-size:14px;letter-spacing:.13em;color:#b7a5f0;margin:8px 0 13px}header{text-align:center}small,.hint{color:#a6acc5}.orb{width:90px;height:90px;border-radius:50%;margin:18px auto;background:radial-gradient(circle at 30% 25%,#e0d5ff,#6b4dac 65%,#19172a);box-shadow:0 0 45px #9374ff66;animation:b 4s ease-in-out infinite alternate}@keyframes b{to{transform:scale(1.13);box-shadow:0 0 65px #9d78ffbb}}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:18px 0}.preset{border:1px solid #424960;background:#25273b;color:#eee;border-radius:12px;padding:12px 4px;font-size:12px}.preset.active{border:2px solid var(--c);background:#383752}.preset i{display:block;margin:auto auto 7px;width:12px;height:12px;background:var(--c);border-radius:50%}.preset span{display:block;font-size:11px;color:#bec5d6}.card{background:#202334;border:1px solid #33384f;border-radius:15px;padding:16px;margin:12px 0}.control{margin:14px 0}label{display:flex;justify-content:space-between;gap:8px;font-weight:550}output{color:#c9adff;white-space:nowrap}input[type=range]{width:100%;height:25px;accent-color:#ab89ff;touch-action:pan-y}select{width:100%;margin-top:7px;background:#30354a;color:white;padding:12px;border:1px solid #515773;border-radius:10px;font-size:16px}#power{width:100%;padding:18px;border:0;border-radius:13px;font-size:19px;font-weight:800;background:#8060cc;color:#fff}#power.on{background:#ac486a}p{text-align:center;font-size:12px;color:#b8bed0;line-height:1.5}.note{color:#d4c1ff}@media(max-width:360px){.grid{grid-template-columns:repeat(3,1fr)}}@media(prefers-reduced-motion:reduce){.orb{animation:none}}
+</style></head><body><main><header><small>TROLLfx INSTRUMENTS</small><h1>CHAKRA DRONE</h1><span class="hint">STACKED HARMONICS · v0.2</span><div class="orb"></div></header>
+<div class="grid" id="presets"></div>
+<section class="card"><h2>CHORD / TUNING</h2>
+<label for="chord">Chord shape <output id="frequency">639 Hz root</output></label><select id="chord"><option value="major">Major</option><option value="minor">Minor</option><option value="sus2">Sus2</option><option value="sus4">Sus4</option><option value="fifth">Open fifths</option><option value="unison">Unison stack</option></select>
+<div class="control"><label for="detune">Stack detune <output id="detuneValue"></output></label><input type="range" id="detune" min="0" max="25" value="5"></div>
+</section>
+<section class="card"><h2>EVEN / ODD HARMONIC STACKS</h2>
+<div class="control"><label for="odd">Odd partials (1, 3, 5, 7 …) <output id="oddValue"></output></label><input id="odd" type="range" min="0" max="100" value="85"></div>
+<div class="control"><label for="even">Even partials (2, 4, 6, 8 …) <output id="evenValue"></output></label><input id="even" type="range" min="0" max="100" value="42"></div>
+<div class="control"><label for="shape">Harmonic brightness <output id="shapeValue"></output></label><input id="shape" type="range" min="0" max="100" value="48"></div>
+</section>
+<section class="card"><h2>SUBHARMONIC REGISTER</h2>
+<p class="note">Sub voices track the selected root. /2, /3 and /4 create octave and fifth-related resonances; /8 adds deep bass.</p>
+<div class="control"><label for="sub2">½ frequency · octave below <output id="sub2Value"></output></label><input id="sub2" type="range" min="0" max="100" value="45"></div>
+<div class="control"><label for="sub3">⅓ frequency · fifth-related <output id="sub3Value"></output></label><input id="sub3" type="range" min="0" max="100" value="28"></div>
+<div class="control"><label for="sub4">¼ frequency · two octaves <output id="sub4Value"></output></label><input id="sub4" type="range" min="0" max="100" value="38"></div>
+<div class="control"><label for="sub8">⅛ frequency · deep foundation <output id="sub8Value"></output></label><input id="sub8" type="range" min="0" max="100" value="12"></div>
+</section>
+<section class="card"><h2>MOTION / OUTPUT</h2>
+<div class="control"><label for="rate">Slow harmonic motion <output id="rateValue"></output></label><input id="rate" type="range" min="0" max="100" value="30"></div>
+<div class="control"><label for="depth">Motion depth <output id="depthValue"></output></label><input id="depth" type="range" min="0" max="100" value="32"></div>
+<div class="control"><label for="cutoff">Tone / lowpass <output id="cutoffValue"></output></label><input id="cutoff" type="range" min="0" max="100" value="78"></div>
+<div class="control"><label for="volume">Volume <output id="volumeValue"></output></label><input id="volume" type="range" min="0" max="75" value="23"></div></section>
+<button id="power">▶ START DRONE</button><p id="status">Tap START to enable audio</p>
+<p>Experimental audio instrument. Uses original Web Audio harmonic synthesis inspired by Plaits additive/chord ideas; not the original Plaits DSP. Start with low phone/headphone volume. Chakra tuning labels are artistic, not medical.</p>
+</main><script>
+'use strict';
+const $=id=>document.getElementById(id);
+const chakras=[['Root',396,'#db6579'],['Sacral',417,'#e79e63'],['Solar',528,'#e5cb6b'],['Heart',639,'#76c68a'],['Throat',741,'#68c8d5'],['Third Eye',852,'#809ce9'],['Crown',963,'#b193e8']];
+const chords={major:[0,4,7,12],minor:[0,3,7,12],sus2:[0,2,7,12],sus4:[0,5,7,12],fifth:[0,7,12,19],unison:[0,0,12,12]};
+const params={odd:.85,even:.42,shape:.48,detune:5,sub2:.45,sub3:.28,sub4:.38,sub8:.12,rate:.16,depth:.32,cutoff:4900,volume:.23};
+let selected=3,ctx,out,filter,stack=[],subs=[],playing=false,raf=0,startTime=0,lastWave=-1;
+function f(){return chakras[selected][1]}
+function renderPresets(){
+ const el=$('presets');el.innerHTML='';
+ chakras.forEach(([name,hz,color],i)=>{
+ const b=document.createElement('button');b.className='preset'+(selected===i?' active':'');
+ b.style.setProperty('--c',color);b.innerHTML='<i></i>'+name+'<span>'+hz+' Hz</span>';
+ b.onclick=()=>{selected=i;renderPresets();$('frequency').textContent=hz+' Hz root';retune();};
+ el.appendChild(b);
+ });
+}
+function bind(id,fn,display){
+ const input=$(id);
+ function update(){const v=+input.value;params[id]=fn(v);$(id+'Value').textContent=display(params[id]);apply(id);}
+ input.addEventListener('input',update);update();
+}
+const percent=x=>Math.round(x*100)+'%';
+bind('odd',v=>v/100,percent);bind('even',v=>v/100,percent);
+bind('shape',v=>v/100,percent);bind('detune',v=>v,x=>x+' ct');
+for(const id of ['sub2','sub3','sub4','sub8'])bind(id,v=>v/100,percent);
+bind('rate',v=>.018*Math.pow(60,v/100),x=>x.toFixed(2)+' Hz');
+bind('depth',v=>v/100,percent);
+bind('cutoff',v=>250*Math.pow(48,v/100),x=>Math.round(x)+' Hz');
+bind('volume',v=>v/100,percent);
+renderPresets();
+function wave(odd,shape){
+ const re=new Float32Array(25),im=new Float32Array(25);
+ for(let n=odd?1:2;n<25;n+=2){
+   // Higher harmonics roll off; shape opens their spectrum progressively.
+   const roll=2.5-2.0*shape;
+   im[n]=Math.pow(n,-roll);
+ }
+ return ctx.createPeriodicWave(re,im,{disableNormalization:false});
+}
+function setWaves(shape){if(!ctx)return;const a=wave(true,shape),b=wave(false,shape);for(const voice of stack){voice.odd.osc.setPeriodicWave(a);voice.even.osc.setPeriodicWave(b)}}
+function retune(){
+ if(!ctx)return;const now=ctx.currentTime,steps=chords[$('chord').value];
+ stack.forEach((v,i)=>{
+ const hz=f()*Math.pow(2,steps[i]/12);
+ v.odd.osc.frequency.setTargetAtTime(hz,now,.025);
+ v.even.osc.frequency.setTargetAtTime(hz,now,.025);
+ v.odd.osc.detune.setTargetAtTime(i%2?-params.detune:params.detune,now,.03);
+ v.even.osc.detune.setTargetAtTime(i%2?params.detune:-params.detune,now,.03);
+ });
+ subs.forEach(v=>v.osc.frequency.setTargetAtTime(f()/v.div,now,.03));
+}
+function apply(){
+ if(!ctx)return;const now=ctx.currentTime;
+ for(const v of stack){
+ v.odd.gain.gain.setTargetAtTime(params.odd*.11,now,.04);
+ v.even.gain.gain.setTargetAtTime(params.even*.11,now,.04);
+ }
+ for(const v of subs)v.gain.gain.setTargetAtTime(params['sub'+v.div]*.19,now,.04);
+ filter.frequency.setTargetAtTime(params.cutoff,now,.05);
+ if(playing)out.gain.setTargetAtTime(params.volume,now,.08);
+ retune();
+}
+function makeOsc(freq,destination,pan=0){
+ const osc=ctx.createOscillator(),gain=ctx.createGain();
+ osc.frequency.value=freq;gain.gain.value=0;osc.connect(gain);
+ if(ctx.createStereoPanner){const p=ctx.createStereoPanner();p.pan.value=pan;gain.connect(p);p.connect(destination)}else gain.connect(destination);
+ osc.start();return {osc,gain};
+}
+function createAudio(){
+ const Audio=window.AudioContext||window.webkitAudioContext;
+ if(!Audio)throw Error('Web Audio not available');
+ ctx=new Audio();out=ctx.createGain();out.gain.value=0;
+ filter=ctx.createBiquadFilter();filter.type='lowpass';filter.Q.value=.6;
+ filter.connect(out);out.connect(ctx.destination);
+ for(let i=0;i<4;i++){
+ const p=(i-1.5)*.22;
+ stack.push({odd:makeOsc(f(),filter,p),even:makeOsc(f(),filter,-p)});
+ }
+ for(const div of [2,3,4,8])subs.push({...makeOsc(f()/div,filter,0),div});
+ setWaves(params.shape);apply();
+}
+function animate(){
+ if(!playing)return;
+ const m=Math.sin(2*Math.PI*params.rate*(ctx.currentTime-startTime));
+ const shape=Math.min(1,Math.max(0,params.shape+params.depth*.4*m));
+ // Rebuild harmonic spectra at most ~12 times per second, avoiding audio-rate allocations.
+ if(Math.abs(shape-lastWave)>.035){setWaves(shape);lastWave=shape;}
+ raf=requestAnimationFrame(animate);
+}
+async function start(){
+ try{
+  if(!ctx)createAudio();
+  await ctx.resume();playing=true;startTime=ctx.currentTime;lastWave=-1;
+  out.gain.setTargetAtTime(params.volume,ctx.currentTime,.12);
+  $('power').textContent='■ STOP DRONE';$('power').classList.add('on');
+  $('status').textContent='Playing · '+chakras[selected][0]+' · '+f()+' Hz';
+  animate();
+ }catch(e){$('status').textContent='Audio error: '+e.message;}
+}
+function stop(){
+ playing=false;cancelAnimationFrame(raf);
+ if(out&&ctx)out.gain.setTargetAtTime(0,ctx.currentTime,.08);
+ $('power').textContent='▶ START DRONE';$('power').classList.remove('on');$('status').textContent='Stopped';
+}
+$('power').onclick=()=>playing?stop():start();
+$('chord').onchange=retune;
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&playing)stop()});
 </script></body></html>
