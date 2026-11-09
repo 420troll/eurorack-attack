@@ -59,6 +59,17 @@ for parameter in module["capabilities"]["chain_params"]:
         break
 else:
     raise SystemExit("Missing model parameter")
+# Remove nonfunctional model step controls from the V2 schema entirely.
+# The MODEL parameter remains at its original VST index for core host ABI.
+module["capabilities"]["chain_params"] = [
+    p for p in module["capabilities"]["chain_params"]
+    if p["key"] not in ("model_prev", "model_next")
+]
+lock_path = root / "vst/params.lock"
+locked = lock_path.read_text().splitlines()
+assert locked.count("model_prev") == 1 and locked.count("model_next") == 1
+lock_path.write_text("\\n".join(k for k in locked if k not in
+                                   ("model_prev", "model_next")) + "\\n")
 module_path.write_text(json.dumps(module, indent=2) + "\n")
 
 # Tabs and Q-Link groups are distinct. No MODEL selector is exposed.
