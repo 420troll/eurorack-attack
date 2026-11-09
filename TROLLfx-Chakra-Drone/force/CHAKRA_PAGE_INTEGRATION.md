@@ -11,11 +11,11 @@ The upstream plugin already exposes real Plaits DSP, 24 models, polyphony and to
 - Trigger via existing `ppf_engine_t::note_on` and `note_off` (no outbound MIDI bridge necessary).
 - Normal Force MIDI/pads and sequencer continue to work.
 - Keep HARMONICS, TIMBRE, MORPH, OUT/AUX, and original model selector fully accessible.
-- For base pitch, trigger MIDI note 69 with a plugin pitch offset of `12*log2(chakra_hz / 440)` semitones, using the existing `pitch` parameter. The upstream engine is calibrated to 44.1 kHz; verify actual output frequency by spectral test.
-- On changing selected chakra while trigger active, send note-off before changing the pitch, then retrigger note 69.
-- On plugin close, transport reset, or all-notes-off, clear touch gate. Persist state without leaving stuck notes.
-- **Important:** changing the global pitch parameter will also affect external MIDI notes. A proper dedicated per-trigger tuning path is preferred for the final implementation, so touchscreen and normal MIDI can coexist.
-- **Important:** a toggle is a held note, not a momentary tap. Add a dedicated OFF and ALL NOTES OFF control before release.
+- Convert the selected frequency to a fractional MIDI pitch with `69 + 12*log2(chakra_hz / 440)` and apply it only to the owned Chakra voice. The upstream compensation for its corrected Plaits sample rate remains active; verify actual output frequency by spectral test.
+- Changing a preset or manual Hz while HOLD is active retunes the owned voice without adding another glide stage or retriggering it.
+- On plugin close or all-notes-off, clear the held voice. Persist state without leaving stuck notes.
+- The Chakra voice uses owner ID 128, outside external MIDI's 0–127 range, so Chakra release cannot release a same-pitch external note. It still shares the normal eight-voice allocator and native mono/poly/unison rules.
+- HOLD is a held note, not a momentary tap. Turning it off, CC 120/123 and the wrapper's all-notes-off path release it.
 
 ## Sound plans
 
@@ -25,9 +25,9 @@ Phase 3: independent additive EVEN/ODD partial bank + root/2, /3, /4, /8 subregi
 
 ## Minimum native source edit points
 
-- `src/module.json`: append `chakra_root` enum and `chakra_gate` on/off parameter to `chain_params`, preserving existing parameter order.
+- `src/module.json`: append `chakra_source`, `chakra_root`, `chakra_hz` and `chakra_gate` to `chain_params`, preserving existing parameter order.
 - `vst/layout.conf`: add a `[tab CHAKRA]` with a root selection popup, a trigger toggle, Harmonics/Timbre/Morph and OUT/AUX knobs; add page Q-Link assignments.
-- `src/dsp/freak_plugin.cpp`: maintain per-instance chakra root and gate; intercept these two parameter keys in `set_param`, report values in `get_param`, and invoke native `inst->engine.note_on(69, velocity)` / `note_off(69)`.
+- `src/dsp/plaits_move_engine.*`: own the private Chakra voice and fractional fundamental while leaving external MIDI note ownership unchanged.
 - `vst/vst.json`: rename plugin and change UID from `MiPl` to unique TROLLfx ID to avoid colliding with installed MPC Plaits. Change .so output.
 - `src/module.json`: also rename plugin and its unique ID.
 - Retain upstream MIT notices, derived artwork CC BY-SA requirements, and records of source commit.
@@ -41,8 +41,8 @@ cd mpc-vst-plaits
 ./build.sh
 ```
 
-Build needs Docker. This is the upstream build command, **not yet a Chakra build**. Poloq reports support for Force by architecture but only verifies hardware on MPC One 3.9.1.
+Build needs Docker. Apply `add_chakra_page.py` before the upstream build command. Poloq reports Force architecture support, but upstream hardware verification is on MPC One 3.9.1; Chakra Force verification remains separately tracked.
 
-## Status
+## Current implementation
 
-Architecture and integration points have been verified against upstream sources. No Chakra fork, compiled binary, or Force hardware test is claimed in this document.
+`chakra-plaits.patch` is the reproducible integration against upstream commit `b113c83`. It adds preset/manual fundamental control using a private voice owner, preserves the original parameter order by appending controls, and adds offline regression coverage. See `INSTALL_FORCE.md` and `HARDWARE_TEST_LOG.md` for exact evidence and remaining hardware checks.

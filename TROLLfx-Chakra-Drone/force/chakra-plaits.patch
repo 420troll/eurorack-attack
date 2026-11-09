@@ -1,0 +1,484 @@
+diff --git a/src/dsp/freak_plugin.cpp b/src/dsp/freak_plugin.cpp
+index 1b4caf4..6e3caba 100644
+--- a/src/dsp/freak_plugin.cpp
++++ b/src/dsp/freak_plugin.cpp
+@@ -175,6 +175,10 @@ static void build_param_table() {
+             add(P_ENUM, OFF(asg_on) + (r * PPF_GRID + c) * sizeof(int), 0, 1, "asg_%d_%d_on", r + 1, c + 1);
+         }
+     }
++    add(P_ENUM, OFF(chakra_source), 0, 1, "chakra_source");
++    add(P_ENUM, OFF(chakra_root), 0, 6, "chakra_root");
++    add(P_FLOAT, OFF(chakra_hz), 20, 2000, "chakra_hz");
++    add(P_ENUM, OFF(chakra_gate), 0, 1, "chakra_gate");
+ #undef OFF
+ }
+
+@@ -293,6 +297,8 @@ static void on_midi(void *instance, const uint8_t *msg, int len, int source) {
+             inst->engine.pitch_bend(0.0f);
+             inst->engine.channel_pressure(0.0f);
+         } else if (cc == 120 || cc == 123) {   // all sound off / all notes off
++            inst->params.chakra_gate = 0;
++            inst->engine.set_params(inst->params);
+             inst->engine.all_notes_off();
+             inst->sustain = false;
+             memset(inst->sustained, 0, sizeof(inst->sustained));
+@@ -321,7 +327,11 @@ static void set_param(void *instance, const char *key, const char *val) {
+         if (atoi(val)) inst->engine.transport_start();
+         return;
+     } else if (strcmp(key, "all_notes_off") == 0) {
+-        if (atoi(val)) inst->engine.all_notes_off();
++        if (atoi(val)) {
++            inst->params.chakra_gate = 0;
++            inst->engine.set_params(inst->params);
++            inst->engine.all_notes_off();
++        }
+         return;
+     } else if (strcmp(key, "polyphony") == 0 && strtof(val, NULL) != 0.0f) {
+         // NOTES is shown as text, so the wrapper passes it as a plain number without its whole-number settling
+@@ -351,7 +361,7 @@ static void set_param(void *instance, const char *key, const char *val) {
+ static int get_param(void *instance, const char *key, char *buf, int buf_len) {
+     freak_instance_t *inst = (freak_instance_t *)instance;
+     if (!inst || !key || !buf || buf_len <= 0) return -1;
+-    if (strcmp(key, "name") == 0) return snprintf(buf, buf_len, "MPC Plaits");
++    if (strcmp(key, "name") == 0) return snprintf(buf, buf_len, "TROLLfx Chakra Plaits");
+     if (strcmp(key, "state") == 0) return build_state_json(inst, buf, buf_len);
+     // NOTES ("display": "string"): the setting, then the notes that can really sound when UNISON caps it, e.g.
+     // "4 (2)". The wrapper reads the leading number back as the value.
+diff --git a/src/dsp/plaits_move_engine.cpp b/src/dsp/plaits_move_engine.cpp
+index 11ad038..544ba55 100644
+--- a/src/dsp/plaits_move_engine.cpp
++++ b/src/dsp/plaits_move_engine.cpp
+@@ -130,6 +130,8 @@ constexpr float kSilenceLevel = 1e-4f;                            // -80 dBFS, p
+ constexpr int kSilenceHoldSamples = PPF_SAMPLE_RATE / 10;         // released + this long below it -> voice free
+ constexpr int kMaxReleaseSamples = PPF_SAMPLE_RATE * 30;          // safety cap on a released voice's tail
+ constexpr int kMonoStackSize = 16;
++/* Outside MIDI's 0..127 range, so the touchscreen voice has independent note ownership. */
++constexpr int kChakraNoteId = 128;
+ constexpr float kFixedVoiceMixGain = 0.3535533905932738f;  // 1/sqrt(8)
+ constexpr float kDefaultBpm = 120.0f;
+ constexpr float kPitchModSemitones = 24.0f;                // a full MOD / ASSIGN amount on PITCH
+@@ -367,6 +369,10 @@ void ppf_default_params(ppf_params_t *params) {
+     params->filter_mode = PPF_FILTER_LP;
+     params->filter_cutoff = 1.0f;
+     params->volume = 1.0f;
++    params->chakra_source = 0;
++    params->chakra_root = 3;
++    params->chakra_hz = 440.0f;
++    params->chakra_gate = 0;
+
+     for (int n = 0; n < PPF_NUM_ENVS; ++n) {
+         params->env[n].attack_ms = 5;
+@@ -413,8 +419,10 @@ struct ppf_engine_t::Impl {
+     float bend;
+     float wheel;
+     float pressure;
++    float chakra_note;
+
+-    Impl() : rng_state(0x93A15F3Du), age_counter(1), bpm(kDefaultBpm), bend(0.0f), wheel(0.0f), pressure(0.0f) {}
++    Impl() : rng_state(0x93A15F3Du), age_counter(1), bpm(kDefaultBpm), bend(0.0f), wheel(0.0f), pressure(0.0f),
++             chakra_note(69.0f) {}
+
+     // Held keys in mono/legato, oldest first: releasing the sounding key goes back to the one before it.
+     int mono_notes[kMonoStackSize];
+@@ -507,7 +515,8 @@ struct ppf_engine_t::Impl {
+         v.unison_slot = unison_slot;
+         v.velocity = clampf(velocity, 0.0f, 1.0f);
+         v.age = age_counter++;
+-        v.note_target = (float)note + detune;
++        const float played_note = note == kChakraNoteId ? chakra_note : (float)note;
++        v.note_target = played_note + detune;
+         if (!was_active) {
+             v.note_current = v.note_target;
+         }
+@@ -667,6 +676,7 @@ void ppf_engine_t::init() {
+
+ void ppf_engine_t::set_params(const ppf_params_t &params) {
+     if (params.voice_mode != params_.voice_mode) impl_->mono_count = 0;
++    const bool chakra_was_on = params_.chakra_gate != 0;
+     params_ = params;
+     ppf_params_t &p = params_;
+     p.model = clampi(p.model, 0, kMaxEngines - 1);
+@@ -696,6 +706,10 @@ void ppf_engine_t::set_params(const ppf_params_t &params) {
+     p.filter_resonance = clampf(p.filter_resonance, 0.0f, 1.0f);
+     p.volume = clampf(p.volume, 0.0f, 2.0f);
+     p.pan = clampf(p.pan, -1.0f, 1.0f);
++    p.chakra_source = clampi(p.chakra_source, 0, 1);
++    p.chakra_root = clampi(p.chakra_root, 0, 6);
++    p.chakra_hz = clampf(p.chakra_hz, 20.0f, 2000.0f);
++    p.chakra_gate = p.chakra_gate ? 1 : 0;
+     for (auto &e : p.env) {
+         e.attack_ms = clampi(e.attack_ms, 0, 5000);
+         e.decay_ms = clampi(e.decay_ms, 0, 5000);
+@@ -729,6 +743,12 @@ void ppf_engine_t::set_params(const ppf_params_t &params) {
+             p.asg_on[r][c] = p.asg_on[r][c] ? 1 : 0;
+         }
+     }
++
++    static const float chakra_hz[] = {396.0f, 417.0f, 528.0f, 639.0f, 741.0f, 852.0f, 963.0f};
++    const float fundamental = p.chakra_source == 0 ? chakra_hz[p.chakra_root] : p.chakra_hz;
++    impl_->chakra_note = 69.0f + 12.0f * log2f(fundamental / 440.0f);
++    if (p.chakra_gate && !chakra_was_on) note_on(kChakraNoteId, 0.8f);
++    if (!p.chakra_gate && chakra_was_on) note_off(kChakraNoteId);
+ }
+
+ int ppf_engine_t::effective_notes() const {
+@@ -1042,7 +1062,8 @@ void ppf_engine_t::render(float *out_l, float *out_r, int frames) {
+                 spread_pan = ((float)slot / (float)(unison - 1)) * 2.0f - 1.0f;
+                 spread_pan *= P.spread;
+             }
+-            v.note_target = (float)v.note + detune_offset;
++            const float played_note = v.note == kChakraNoteId ? I.chakra_note : (float)v.note;
++            v.note_target = played_note + detune_offset;
+             float pan = clampf(spread_pan + P.pan + dst[PPF_DST_PAN], -1.0f, 1.0f);
+             v.pan_current = pan;
+
+diff --git a/src/dsp/plaits_move_engine.h b/src/dsp/plaits_move_engine.h
+index a13739f..b06e516 100644
+--- a/src/dsp/plaits_move_engine.h
++++ b/src/dsp/plaits_move_engine.h
+@@ -146,6 +146,12 @@ typedef struct {
+     int asg_dst[PPF_GRID];
+     float asg_amt[PPF_GRID][PPF_GRID];
+     int asg_on[PPF_GRID][PPF_GRID];
++
++    /* CHAKRA page. Appended so every upstream parameter keeps its VST index. */
++    int chakra_source;       /* 0 = named preset, 1 = manual Hz */
++    int chakra_root;         /* 396, 417, 528, 639, 741, 852, 963 Hz */
++    float chakra_hz;
++    int chakra_gate;
+ } ppf_params_t;
+
+ void ppf_default_params(ppf_params_t *params);
+diff --git a/src/module.json b/src/module.json
+index 3ef36fa..b18a87b 100644
+--- a/src/module.json
++++ b/src/module.json
+@@ -1,6 +1,6 @@
+ {
+-  "id": "freak",
+-  "name": "MPC Plaits",
++  "id": "trollfx-chakra-plaits",
++  "name": "TROLLfx Chakra Plaits",
+   "abbrev": "MRH",
+   "version": "0.0.1",
+   "description": "Mutable Instruments Plaits for MPC OS, with MrHyde's modulation (schwung-mrhyde)",
+@@ -1374,6 +1374,49 @@
+         ],
+         "default": 1
+       },
++      {
++        "key": "chakra_source",
++        "name": "ROOT SOURCE",
++        "type": "enum",
++        "options": [
++          "Preset",
++          "Manual Hz"
++        ],
++        "default": 0
++      },
++      {
++        "key": "chakra_root",
++        "name": "CHAKRA",
++        "type": "enum",
++        "options": [
++          "Root 396 Hz",
++          "Sacral 417 Hz",
++          "Solar 528 Hz",
++          "Heart 639 Hz",
++          "Throat 741 Hz",
++          "Third Eye 852 Hz",
++          "Crown 963 Hz"
++        ],
++        "default": 3
++      },
++      {
++        "key": "chakra_hz",
++        "name": "MANUAL Hz",
++        "type": "float",
++        "min": 20.0,
++        "max": 2000.0,
++        "default": 440.0
++      },
++      {
++        "key": "chakra_gate",
++        "name": "CHAKRA HOLD",
++        "type": "enum",
++        "options": [
++          "Off",
++          "On"
++        ],
++        "default": 0
++      },
+       {
+         "key": "model_prev",
+         "name": "MODEL <",
+diff --git a/tests/run_c.sh b/tests/run_c.sh
+index 32a7fcd..5a4d29d 100755
+--- a/tests/run_c.sh
++++ b/tests/run_c.sh
+@@ -13,6 +13,6 @@ docker run --rm -e ASAN_OPTIONS=detect_leaks=0 $PLAT -u "$(id -u):$(id -g)" -v "
+ set -e; SAN="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1"; OBJS=""; mkdir -p $BUILD
+ for f in $SOURCES; do o="$BUILD/${f//\//_}.o"; [ "$o" -nt "$f" ] || g++ $SAN $CFLAGS $XFLAGS -Ivst/build -c "$f" -o "$o"; OBJS="$OBJS $o"; done
+ for f in ${TEST:-tests/fuzz.c} "$MV/wrapper/vst2_wrap.c" "$MV/adapters/schwung/schwung_engine.c"; do o="$BUILD/$(basename "$f").o"; gcc $SAN -std=gnu11 -Ivst/build -c "$f" -o "$o"; OBJS="$OBJS $o"; done
+-g++ $SAN $OBJS $LIBS -o $BUILD/$(basename ${TEST:-tests/fuzz.c} .c)'"
+-$BUILD/$(basename ${TEST:-tests/fuzz.c} .c) ${1:-200000} ${2:-1} ${3:-999999999}"
++g++ $SAN $OBJS $LIBS -o $BUILD/$(basename ${TEST:-tests/fuzz.c} .c)
++$BUILD/$(basename ${TEST:-tests/fuzz.c} .c) ${1:-200000} ${2:-1} ${3:-999999999}
+ '
+diff --git a/vst/layout.conf b/vst/layout.conf
+index 884721f..26e15b9 100644
+--- a/vst/layout.conf
++++ b/vst/layout.conf
+@@ -215,3 +215,17 @@ toggle cx=954 cy=610 label="" key=asg_4_3_on img=images/led_off.svg img_on=image
+ knob cx=1106 cy=610 r=26 label="" key=asg_4_4 img=images/knob_small.svg base=images/knob_shadow.svg
+ toggle cx=1190 cy=610 label="" key=asg_4_4_on img=images/led_off.svg img_on=images/led_on.svg
+ qlinks "ASSIGN" = asg_1_1,asg_2_1,asg_3_1,asg_4_1,asg_1_2,asg_2_2,asg_3_2,asg_4_2,asg_1_3,asg_2_3,asg_3_3,asg_4_3,asg_1_4,asg_2_4,asg_3_4,asg_4_4
++
++[tab CHAKRA]
++frame x=36 y=108 w=760 h=238 title="CHAKRA FUNDAMENTAL"
++enum_h cx=416 cy=182 sw=250 label="SOURCE" key=chakra_source options="PRESET,MANUAL HZ"
++popup cx=240 cy=276 w=340 h=52 label="PRESET" key=chakra_root wheel=1 when=chakra_source:Preset
++knob cx=592 cy=276 r=44 label="MANUAL Hz" key=chakra_hz img=images/knob_big.svg base=images/knob_shadow.svg when="chakra_source:Manual Hz"
++toggle cx=1030 cy=228 label="HOLD" key=chakra_gate img=images/led_off.svg img_on=images/led_on.svg
++frame x=36 y=382 w=1208 h=286 title="NATIVE PLAITS CONTROLS"
++popup cx=188 cy=478 w=280 h=48 label="MODEL" key=model wheel=1
++knob cx=450 cy=524 r=42 label="HARMONICS" key=harmonics img=images/knob_big.svg base=images/knob_shadow.svg
++knob cx=650 cy=524 r=42 label="TIMBRE" key=timbre img=images/knob_big.svg base=images/knob_shadow.svg
++knob cx=850 cy=524 r=42 label="MORPH" key=morph img=images/knob_big.svg base=images/knob_shadow.svg
++knob cx=1050 cy=524 r=42 label="OUT / AUX" key=aux_mix img=images/knob_big.svg base=images/knob_shadow.svg
++qlinks "CHAKRA" = chakra_source,chakra_root,chakra_hz,chakra_gate,model,harmonics,timbre,morph,aux_mix
+diff --git a/vst/vst.json b/vst/vst.json
+index 31605a8..dfaa145 100644
+--- a/vst/vst.json
++++ b/vst/vst.json
+@@ -1,9 +1,9 @@
+ {
+-  "name": "MPC Plaits",
+-  "vendor": "poloq",
+-  "uid": "MiPl",
+-  "version": 1001,
+-  "so": "plaits.so",
++  "name": "Chakra Plaits",
++  "vendor": "TROLLfx",
++  "uid": "TcPl",
++  "version": 1000,
++  "so": "chakra_plaits.so",
+   "module": "../src/module.json",
+   "layout": "layout.conf",
+   "art": "html",
+diff --git a/tests/chakra.c b/tests/chakra.c
+new file mode 100755
+index 0000000..0200d6d
+--- /dev/null
++++ b/tests/chakra.c
+@@ -0,0 +1,64 @@
++/* Chakra integration: held preset/manual voice, release, MIDI coexistence and all-notes-off. */
++#include <math.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++#include "params.h"
++
++typedef struct AEffect AEffect;
++typedef intptr_t (*cb)(AEffect*,int32_t,int32_t,intptr_t,void*,float);
++struct AEffect { int32_t magic; intptr_t (*d)(AEffect*,int32_t,int32_t,intptr_t,void*,float);
++ void*p; void (*setP)(AEffect*,int32_t,float); float (*getP)(AEffect*,int32_t);
++ int32_t np,npar,ni,no,flags; intptr_t r1,r2; int32_t a,b,c; float io; void*obj,*user; int32_t uid,ver;
++ void (*pr)(AEffect*,float**,float**,int32_t); void*pdr; char f[56]; };
++typedef struct { int32_t type,byteSize,deltaFrames,flags,noteLength,noteOffset; unsigned char m[4]; char x[4]; } ME;
++typedef struct { int32_t n; intptr_t r; void* ev[2]; } EV;
++extern AEffect* VSTPluginMain(cb);
++
++static intptr_t host(AEffect*e,int32_t op,int32_t i,intptr_t v,void*p,float o) {
++    static double ti[16];
++    (void)e; (void)i; (void)v; (void)p; (void)o;
++    if (op == 7) { ti[4] = 120.0; ((int32_t*)&ti[8])[5] = 1 << 10; return (intptr_t)ti; }
++    return 0;
++}
++static int idx(const char *k) { for (int i=0;i<NPARAMS;i++) if (!strcmp(PARAMS[i].key,k)) return i; return -1; }
++static void setv(AEffect *a, const char *k, float real) {
++    int i=idx(k); a->setP(a,i,(real-PARAMS[i].min)/(PARAMS[i].max-PARAMS[i].min));
++}
++static void midi(AEffect *a, int st, int d1, int d2) {
++    ME m={1,sizeof(ME),0,0,0,0,{(unsigned char)st,(unsigned char)d1,(unsigned char)d2,0},{0}};
++    EV ev={1,0,{&m,0}}; a->d(a,25,0,0,&ev,0);
++}
++static double run(AEffect *a, int blocks) {
++    float L[128],R[128],*o[2]={L,R}; double s=0.0;
++    for(int b=0;b<blocks;b++){a->pr(a,0,o,128);for(int i=0;i<128;i++)s+=L[i]*L[i]+R[i]*R[i];}
++    return sqrt(s/(blocks*256.0));
++}
++static int fails;
++#define CHECK(c,...) do{printf("%s ",(c)?"ok  ":"FAIL");printf(__VA_ARGS__);printf("\n");if(!(c))fails++;}while(0)
++
++int main(void) {
++    AEffect *a=VSTPluginMain(host);
++    int model=idx("model"), gate=idx("chakra_gate");
++    CHECK(a && a->ni==0 && a->no==2 && (a->flags&(1<<8)), "VST is a MIDI instrument with stereo output");
++    CHECK(model>=0 && PARAMS[model].nopts==24, "all 24 Plaits models are exposed");
++    CHECK(idx("chakra_source")>=0 && idx("chakra_root")>=0 && idx("chakra_hz")>=0 && gate>=0,
++          "preset/manual fundamental controls are exposed");
++    setv(a,"model",8); setv(a,"voice_mode",1); setv(a,"polyphony",4); setv(a,"amp_mode",0);
++    setv(a,"chakra_root",3); setv(a,"chakra_gate",1);
++    double preset=run(a,120);
++    CHECK(preset>1e-4,"Heart 639 Hz preset triggers native Plaits audio (rms %.6f)",preset);
++    setv(a,"chakra_source",1); setv(a,"chakra_hz",440); double manual=run(a,80);
++    CHECK(manual>1e-4,"manual Hz retunes the held Chakra voice (rms %.6f)",manual);
++    midi(a,0x90,60,100); double both=run(a,10); setv(a,"chakra_gate",0); double midi_only=run(a,10);
++    CHECK(both>1e-5 && midi_only>1e-5,"ordinary MIDI remains active after Chakra release (both %.6f, MIDI %.6f)",
++          both,midi_only);
++    midi(a,0x80,60,0); run(a,1200);
++    setv(a,"chakra_gate",1); run(a,20); midi(a,0xB0,123,0);
++    CHECK(a->getP(a,gate)<0.5f,"MIDI all-notes-off clears the Chakra hold state");
++    double released=run(a,1200);
++    CHECK(released<preset*0.25,"release decays the Chakra voice (rms %.6f)",released);
++    printf("%s\n",fails?"FAILED":"PASSED");
++    a->d(a,1,0,0,0,0);
++    return fails!=0;
++}
+diff --git a/vst/params.lock b/vst/params.lock
+new file mode 100755
+index 0000000..8efefdf
+--- /dev/null
++++ b/vst/params.lock
+@@ -0,0 +1,140 @@
++model
++pitch
++harmonics
++timbre
++morph
++timbre_att
++fm_att
++morph_att
++aux_mix
++amp_mode
++lpg_color
++lpg_decay
++trig_rate
++voice_mode
++polyphony
++unison
++detune
++spread
++glide_ms
++bend_range
++velocity_curve
++poly_aftertouch_curve
++filter_mode
++filter_cutoff
++filter_resonance
++volume
++pan
++env1_attack
++env1_decay
++env1_sustain
++env1_release
++env1_retrig
++env2_attack
++env2_decay
++env2_sustain
++env2_release
++env2_retrig
++lfo1_shape
++lfo1_rate
++lfo1_sync
++lfo1_div
++lfo1_retrig
++lfo1_per_voice
++lfo1_phase
++lfo2_shape
++lfo2_rate
++lfo2_sync
++lfo2_div
++lfo2_retrig
++lfo2_per_voice
++lfo2_phase
++cycle_attack_ms
++cycle_decay_ms
++cycle_shape
++cycle_bipolar
++cycle_retrig
++random_mode
++random_rate
++random_sync
++random_div
++random_slew
++random_retrig
++mod_lfo1_pitch
++mod_lfo1_pitch_on
++mod_lfo1_harm
++mod_lfo1_harm_on
++mod_lfo1_timbre
++mod_lfo1_timbre_on
++mod_lfo1_morph
++mod_lfo1_morph_on
++mod_env2_pitch
++mod_env2_pitch_on
++mod_env2_harm
++mod_env2_harm_on
++mod_env2_timbre
++mod_env2_timbre_on
++mod_env2_morph
++mod_env2_morph_on
++mod_cyc_pitch
++mod_cyc_pitch_on
++mod_cyc_harm
++mod_cyc_harm_on
++mod_cyc_timbre
++mod_cyc_timbre_on
++mod_cyc_morph
++mod_cyc_morph_on
++mod_rnd_pitch
++mod_rnd_pitch_on
++mod_rnd_harm
++mod_rnd_harm_on
++mod_rnd_timbre
++mod_rnd_timbre_on
++mod_rnd_morph
++mod_rnd_morph_on
++asg_src1
++asg_src2
++asg_src3
++asg_src4
++asg_dst1
++asg_dst2
++asg_dst3
++asg_dst4
++asg_1_1
++asg_1_1_on
++asg_1_2
++asg_1_2_on
++asg_1_3
++asg_1_3_on
++asg_1_4
++asg_1_4_on
++asg_2_1
++asg_2_1_on
++asg_2_2
++asg_2_2_on
++asg_2_3
++asg_2_3_on
++asg_2_4
++asg_2_4_on
++asg_3_1
++asg_3_1_on
++asg_3_2
++asg_3_2_on
++asg_3_3
++asg_3_3_on
++asg_3_4
++asg_3_4_on
++asg_4_1
++asg_4_1_on
++asg_4_2
++asg_4_2_on
++asg_4_3
++asg_4_3_on
++asg_4_4
++asg_4_4_on
++chakra_source
++chakra_root
++chakra_hz
++chakra_gate
++model_prev
++model_next
