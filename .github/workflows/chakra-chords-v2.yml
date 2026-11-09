@@ -64,6 +64,11 @@ jobs:
           TEST=tests/chakra_sub.c bash tests/run_c.sh
           /tmp/mpc-vst-plugins/tools/test_port.sh vst/vst.json
 
+      - name: Enable ARMv7 Docker emulation on x86 GitHub runner
+        run: |
+          docker run --rm --privileged tonistiigi/binfmt --install arm
+          docker run --rm --platform linux/arm/v7 arm32v7/gcc:11-bullseye uname -m
+
       - name: Build Force ARM32 VST and skin
         env:
           MPC_VST: /tmp/mpc-vst-plugins
