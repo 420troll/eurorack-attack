@@ -124,6 +124,14 @@ if any(p["key"] in keys for p in new_params):
 insert = next(i for i,p in enumerate(params) if p["key"] == "model_prev")
 params[insert:insert] = new_params
 p.write_text(json.dumps(document, indent=2) + "\n")
+# Preserve the host's stable VST parameter ordering.
+lock = root / "vst/params.lock"
+ordered = lock.read_text()
+if ordered.count("chakra_gate\n") != 1:
+    raise SystemExit("Unexpected Chakra parameter lock file")
+ordered = ordered.replace("chakra_gate\n", "chakra_gate\n" +
+    "".join(p["key"] + "\n" for p in new_params))
+lock.write_text(ordered)
 layout = root / "vst/layout.conf"
 ui = layout.read_text()
 old = 'qlinks "CHAKRA" = chakra_source,chakra_root,chakra_hz,chakra_gate,model,harmonics,timbre,morph,aux_mix'
