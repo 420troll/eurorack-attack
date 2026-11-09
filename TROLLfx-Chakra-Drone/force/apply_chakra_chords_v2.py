@@ -112,4 +112,21 @@ layout_path.write_text(prefix + new)
 assert "key=model " not in new
 assert "sub_mix" not in new.split("[tab SUB]")[0]
 assert "timbre" not in new.split("[tab SUB]")[1]
+# The SUB V1 host test is copied by apply_sub_engine.py; update its identity
+# and prove attempts to select another model always return CHORDS (index 14).
+test_path = root / "tests/chakra_sub.c"
+test = test_path.read_text()
+old_uid = 'CHECK(a&&a->uid==0x54635362,"UID is TcSb");'
+new_uid = 'CHECK(a&&a->uid==0x54634332,"UID is TcC2");'
+if test.count(old_uid) != 1:
+    raise SystemExit("Unexpected SUB host UID assertion")
+test = test.replace(old_uid, new_uid)
+old_model = 'CHECK(isfinite(r)&&r>1e-6,"model %d renders",m);'
+new_model = ('CHECK(isfinite(r)&&r>1e-6&&'
+             'fabs(a->getP(a,idx("model"))-(14.0f/23.0f))<1e-5,'
+             '"model %d resolves to CHORDS",m);')
+if test.count(old_model) != 1:
+    raise SystemExit("Unexpected SUB host model test")
+test = test.replace(old_model, new_model)
+test_path.write_text(test)
 print("CHORDS-only DSP and independent CHAKRA/SUB UI applied: TcC2")
