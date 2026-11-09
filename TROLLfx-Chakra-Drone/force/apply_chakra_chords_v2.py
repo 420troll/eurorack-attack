@@ -67,6 +67,18 @@ layout = layout_path.read_text()
 if layout.count("[tab CHAKRA]") != 1:
     raise SystemExit("Expected one CHAKRA tab")
 prefix, old = layout.split("[tab CHAKRA]", 1)
+# Remove the legacy Plaits model browser (LED row, previous/next and popup)
+# from the PLAITS tab as well, not only the new CHAKRA tab.
+old_prefix = prefix
+prefix = "\n".join(line for line in prefix.split("\n")
+                   if not (line.lstrip().startswith(("picture ", "button ", "popup "))
+                           and any("key=" + key in line for key in
+                                   ("model ", "model_prev", "model_next"))))
+prefix = prefix.replace(
+    'qlinks "PLAITS" = pitch,harmonics,timbre,morph,model,timbre_att,fm_att,morph_att,aux_mix',
+    'qlinks "PLAITS" = pitch,harmonics,timbre,morph,-,timbre_att,fm_att,morph_att,aux_mix')
+if prefix == old_prefix or 'key=model ' in prefix:
+    raise SystemExit("Failed to hide PLAITS model controls")
 if "[tab " in old:
     raise SystemExit("Unexpected tabs after CHAKRA; inspect layout before editing")
 if 'qlinks "CHAKRA" =' not in old or "key=sub_mix" not in old:
