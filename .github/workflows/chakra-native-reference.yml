@@ -13,6 +13,11 @@ jobs:
     steps:
       - name: Checkout Chakra project
         uses: actions/checkout@v4
+      - name: Compile and run Force tuning/chord tests
+        run: |
+          cmake -S TROLLfx-Chakra-Drone/native/tests -B /tmp/chakra-tuning-build
+          cmake --build /tmp/chakra-tuning-build -j
+          ctest --test-dir /tmp/chakra-tuning-build --output-on-failure
       - name: Fetch original Plaits source and build
         run: |
           sudo apt-get update
