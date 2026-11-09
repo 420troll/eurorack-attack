@@ -9,7 +9,7 @@ endif()
 # Firmware sources are intentionally excluded; the synth engine runs natively.
 file(GLOB_RECURSE PLAITS_DSP CONFIGURE_DEPENDS
   "${PLAITS_ROOT}/plaits/dsp/*.cc"
-  "${PLAITS_ROOT}/plaits/resources/*.cc"
+  "${PLAITS_ROOT}/plaits/resources.cc"
   "${PLAITS_ROOT}/stmlib/dsp/*.cc"
   "${PLAITS_ROOT}/stmlib/utils/*.cc")
 add_library(chakra_plaits STATIC ${PLAITS_DSP})
